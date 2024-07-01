@@ -4,7 +4,7 @@
 
 #include <unordered_map>
 
-namespace
+namespace reports
 {
 	struct ds3_rumble
 	{
@@ -53,10 +53,10 @@ namespace
 		u8 unknown_3[4];
 		u8 battery_status;
 		u8 unknown_4[10];
-		le_t<u16, 1> gyro;
 		le_t<u16, 1> accel_x;
 		le_t<u16, 1> accel_z;
 		le_t<u16, 1> accel_y;
+		le_t<u16, 1> gyro;
 	};
 	static_assert(sizeof(ds3_input_report) == 49);
 }
@@ -67,7 +67,7 @@ public:
 #ifdef _WIN32
 	u8 report_id = 0;
 #endif
-	ds3_input_report report{};
+	reports::ds3_input_report report{};
 };
 
 class ds3_pad_handler final : public hid_pad_handler<ds3_device>

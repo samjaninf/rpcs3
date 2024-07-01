@@ -2,7 +2,11 @@
 #include "ds4_pad_handler.h"
 #include "Emu/Io/pad_config.h"
 
+#include <limits>
+
 LOG_CHANNEL(ds4_log, "DS4");
+
+using namespace reports;
 
 constexpr id_pair SONY_DS4_ID_0 = {0x054C, 0x0BA0}; // Dongle
 constexpr id_pair SONY_DS4_ID_1 = {0x054C, 0x05C4}; // CUH-ZCT1x
@@ -427,7 +431,6 @@ bool ds4_pad_handler::GetCalibrationData(DS4Device* ds4Dev) const
 		pitchNeg >= 0 || yawNeg >= 0 || rollNeg >= 0)
 	{
 		ds4_log.error("GetCalibrationData: calibration data check failed! pitchPlus=%d, pitchNeg=%d, rollPlus=%d, rollNeg=%d, yawPlus=%d, yawNeg=%d", pitchPlus, pitchNeg, rollPlus, rollNeg, yawPlus, yawNeg);
-		return false;
 	}
 
 	const s32 gyroSpeedScale = read_s16(&buf[19]) + read_s16(&buf[21]);
@@ -465,12 +468,16 @@ bool ds4_pad_handler::GetCalibrationData(DS4Device* ds4Dev) const
 
 	// Make sure data 'looks' valid, dongle will report invalid calibration data with no controller connected
 
-	for (const auto& data : ds4Dev->calib_data)
+	for (size_t i = 0; i < ds4Dev->calib_data.size(); i++)
 	{
+		CalibData& data = ds4Dev->calib_data[i];
+
 		if (data.sens_denom == 0)
 		{
-			ds4_log.error("GetCalibrationData: Failure: sens_denom == 0");
-			return false;
+			ds4_log.error("GetCalibrationData: Invalid accelerometer calibration data for axis %d, disabling calibration.", i);
+			data.bias = 0;
+			data.sens_numer = 4 * DS4_ACC_RES_PER_G;
+			data.sens_denom = std::numeric_limits<s16>::max();
 		}
 	}
 
@@ -520,8 +527,7 @@ void ds4_pad_handler::check_add_device(hid_device* hidDevice, std::string_view p
 	if (!GetCalibrationData(device))
 	{
 		ds4_log.error("check_add_device: GetCalibrationData failed!");
-		hid_close(hidDevice);
-		device->hidDevice = nullptr;
+		device->close();
 		return;
 	}
 
@@ -546,8 +552,7 @@ void ds4_pad_handler::check_add_device(hid_device* hidDevice, std::string_view p
 	if (hid_set_nonblocking(hidDevice, 1) == -1)
 	{
 		ds4_log.error("check_add_device: hid_set_nonblocking failed! Reason: %s", hid_error(hidDevice));
-		hid_close(hidDevice);
-		device->hidDevice = nullptr;
+		device->close();
 		return;
 	}
 
@@ -693,13 +698,13 @@ ds4_pad_handler::DataStatus ds4_pad_handler::get_data(DS4Device* device)
 
 	if (device->has_calib_data)
 	{
-		int calibOffset = offset + offsetof(ds4_input_report_common, gyro);
+		int calib_offset = offset + offsetof(ds4_input_report_common, gyro);
 		for (int i = 0; i < CalibIndex::COUNT; ++i)
 		{
-			const s16 rawValue = read_s16(&buf[calibOffset]);
-			const s16 calValue = apply_calibration(rawValue, device->calib_data[i]);
-			buf[calibOffset++] = (static_cast<u16>(calValue) >> 0) & 0xFF;
-			buf[calibOffset++] = (static_cast<u16>(calValue) >> 8) & 0xFF;
+			const s16 raw_value = read_s16(&buf[calib_offset]);
+			const s16 cal_value = apply_calibration(raw_value, device->calib_data[i]);
+			buf[calib_offset++] = (static_cast<u16>(cal_value) >> 0) & 0xFF;
+			buf[calib_offset++] = (static_cast<u16>(cal_value) >> 8) & 0xFF;
 		}
 	}
 
@@ -783,8 +788,7 @@ PadHandlerBase::connection ds4_pad_handler::update_connection(const std::shared_
 	if (get_data(ds4_dev) == DataStatus::ReadError)
 	{
 		// this also can mean disconnected, either way deal with it on next loop and reconnect
-		hid_close(ds4_dev->hidDevice);
-		ds4_dev->hidDevice = nullptr;
+		ds4_dev->close();
 
 		return connection::no_data;
 	}

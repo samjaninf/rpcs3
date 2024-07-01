@@ -19,7 +19,6 @@
 #include "Emu/Cell/lv2/sys_event.h"
 #include "Emu/Cell/lv2/sys_time.h"
 #include "Emu/Cell/Modules/cellGcmSys.h"
-#include "Emu/Memory/vm_reservation.h"
 #include "util/serialization_ext.hpp"
 #include "Overlays/overlay_perf_metrics.h"
 #include "Overlays/overlay_debug_overlay.h"
@@ -2525,14 +2524,28 @@ namespace rsx
 					}
 				}
 
-				if (backend_config.supports_hw_msaa &&
-					sampler_descriptors[i]->samples > 1)
+				if (backend_config.supports_hw_msaa && sampler_descriptors[i]->samples > 1)
 				{
 					current_fp_texture_state.multisampled_textures |= (1 << i);
 					texture_control |= (static_cast<u32>(tex.zfunc()) << texture_control_bits::DEPTH_COMPARE_OP);
 					texture_control |= (static_cast<u32>(tex.mag_filter() != rsx::texture_magnify_filter::nearest) << texture_control_bits::FILTERED_MAG);
 					texture_control |= (static_cast<u32>(tex.min_filter() != rsx::texture_minify_filter::nearest) << texture_control_bits::FILTERED_MIN);
 					texture_control |= (((tex.format() & CELL_GCM_TEXTURE_UN) >> 6) << texture_control_bits::UNNORMALIZED_COORDS);
+
+					if (rsx::is_texcoord_wrapping_mode(tex.wrap_s()))
+					{
+						texture_control |= (1 << texture_control_bits::WRAP_S);
+					}
+
+					if (rsx::is_texcoord_wrapping_mode(tex.wrap_t()))
+					{
+						texture_control |= (1 << texture_control_bits::WRAP_T);
+					}
+
+					if (rsx::is_texcoord_wrapping_mode(tex.wrap_r()))
+					{
+						texture_control |= (1 << texture_control_bits::WRAP_R);
+					}
 				}
 
 				if (sampler_descriptors[i]->format_class != RSX_FORMAT_CLASS_COLOR)
@@ -3101,19 +3114,8 @@ namespace rsx
 			}
 		}
 
-		CellGcmReportData report_data{ timestamp(), value, 0};
-
-		if (sink < label_addr || sink >= label_addr + sizeof(RsxReports::report))
-		{
-			vm::light_op<false>(vm::_ref<atomic_t<CellGcmReportData>>(sink), [&](atomic_t<CellGcmReportData>& data)
-			{
-				data.release(report_data);
-			});
-		}
-		else
-		{
-			vm::_ref<atomic_t<CellGcmReportData>>(sink).store(report_data);
-		}
+		rsx::reservation_lock<true> lock(sink, 16);
+		vm::_ref<atomic_t<CellGcmReportData>>(sink).store({timestamp(), value, 0});
 	}
 
 	u32 thread::copy_zcull_stats(u32 memory_range_start, u32 memory_range, u32 destination)

@@ -6,6 +6,8 @@
 
 LOG_CHANNEL(ds3_log, "DS3");
 
+using namespace reports;
+
 constexpr std::array<u8, 6> battery_capacity = {0, 1, 25, 50, 75, 100};
 
 constexpr id_pair SONY_DS3_ID_0 = {0x054C, 0x0268};
@@ -517,8 +519,7 @@ PadHandlerBase::connection ds3_pad_handler::update_connection(const std::shared_
 	if (get_data(dev) == DataStatus::ReadError)
 	{
 		// this also can mean disconnected, either way deal with it on next loop and reconnect
-		hid_close(dev->hidDevice);
-		dev->hidDevice = nullptr;
+		dev->close();
 
 		return connection::no_data;
 	}
