@@ -50,6 +50,9 @@ public:
 	color color_override{};
 	bool color_override_active{};
 
+	bool enable_player_leds{};
+	bool update_player_leds{true};
+
 	std::shared_ptr<FusionAhrs> ahrs; // Used to calculate quaternions from sensor data
 	u64 last_ahrs_update_time_us = 0; // Last ahrs update
 
@@ -307,7 +310,7 @@ public:
 	};
 
 	std::vector<pad_ensemble>& bindings() { return m_bindings; }
-	std::string name_string() const { return m_name_string; }
+	const std::string& name_string() const { return m_name_string; }
 	usz max_devices() const { return m_max_devices; }
 	bool has_config() const { return b_has_config; }
 	bool has_rumble() const { return b_has_rumble; }

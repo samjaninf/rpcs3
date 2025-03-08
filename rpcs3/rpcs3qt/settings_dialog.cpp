@@ -14,7 +14,6 @@
 #include <QStyleFactory>
 
 #include "gui_settings.h"
-#include "display_sleep_control.h"
 #include "qt_utils.h"
 #include "uuid.h"
 #include "settings_dialog.h"
@@ -1286,7 +1285,7 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 	m_emu_settings->EnhanceCheckBox(ui->lockOverlayInputToPlayerOne, emu_settings_type::LockOvlIptToP1);
 	SubscribeTooltip(ui->lockOverlayInputToPlayerOne, tooltips.settings.lock_overlay_input_to_player_one);
 
-#if HAVE_SDL2
+#if HAVE_SDL3
 	m_emu_settings->EnhanceCheckBox(ui->loadSdlMappings, emu_settings_type::SDLMappings);
 	SubscribeTooltip(ui->loadSdlMappings, tooltips.settings.sdl_mappings);
 #else
@@ -1822,7 +1821,7 @@ settings_dialog::settings_dialog(std::shared_ptr<gui_settings> gui_settings, std
 
 	m_emu_settings->EnhanceCheckBox(ui->preventDisplaySleep, emu_settings_type::PreventDisplaySleep);
 	SubscribeTooltip(ui->preventDisplaySleep, tooltips.settings.prevent_display_sleep);
-	ui->preventDisplaySleep->setEnabled(display_sleep_control_supported());
+	ui->preventDisplaySleep->setEnabled(Emu.GetCallbacks().display_sleep_control_supported());
 
 	m_emu_settings->EnhanceCheckBox(ui->showTrophyPopups, emu_settings_type::ShowTrophyPopups);
 	SubscribeTooltip(ui->showTrophyPopups, tooltips.settings.show_trophy_popups);
