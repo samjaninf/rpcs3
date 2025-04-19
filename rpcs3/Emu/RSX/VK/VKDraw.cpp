@@ -6,6 +6,7 @@
 #include "VKGSRender.h"
 #include "vkutils/buffer_object.h"
 #include "vkutils/chip_class.h"
+#include <vulkan/vulkan_core.h>
 
 namespace vk
 {
@@ -269,7 +270,6 @@ void VKGSRender::load_texture_env()
 		{
 			if (tex.enabled())
 			{
-				check_heap_status(VK_HEAP_CHECK_TEXTURE_UPLOAD_STORAGE);
 				*sampler_state = m_texture_cache.upload_texture(*m_current_command_buffer, tex, m_rtts);
 			}
 			else
@@ -428,7 +428,6 @@ void VKGSRender::load_texture_env()
 		{
 			if (rsx::method_registers.vertex_textures[i].enabled())
 			{
-				check_heap_status(VK_HEAP_CHECK_TEXTURE_UPLOAD_STORAGE);
 				*sampler_state = m_texture_cache.upload_texture(*m_current_command_buffer, tex, m_rtts);
 			}
 			else
@@ -837,7 +836,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			if (m_vertex_layout_storage &&
 				m_vertex_layout_storage->info.buffer != m_vertex_layout_ring_info.heap->value)
 			{
-				m_current_frame->buffer_views_to_clean.push_back(std::move(m_vertex_layout_storage));
+				vk::get_gc()->dispose(m_vertex_layout_storage);
 			}
 
 			vk::clear_status_interrupt(vk::heap_changed);
@@ -918,7 +917,7 @@ void VKGSRender::emit_geometry(u32 sub_index)
 			info.sType = VK_STRUCTURE_TYPE_CONDITIONAL_RENDERING_BEGIN_INFO_EXT;
 			info.buffer = m_cond_render_buffer->value;
 
-			m_device->_vkCmdBeginConditionalRenderingEXT(*m_current_command_buffer, &info);
+			_vkCmdBeginConditionalRenderingEXT(*m_current_command_buffer, &info);
 			m_current_command_buffer->flags |= vk::command_buffer::cb_has_conditional_render;
 		}
 	}
@@ -936,6 +935,20 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		else if (draw_call.is_single_draw())
 		{
 			vkCmdDraw(*m_current_command_buffer, upload_info.vertex_draw_count, 1, 0, 0);
+		}
+		else if (m_device->get_multidraw_support())
+		{
+			const auto subranges = draw_call.get_subranges();
+			const auto subranges_count = ::size32(subranges);
+			auto [offset, ptr] = m_draw_indirect_count_ring_info.alloc_and_map<4, VkMultiDrawInfoEXT>(subranges_count);
+
+			auto _ptr = ptr;
+			for (const auto& range : subranges)
+			{
+				_ptr->firstVertex = range.first;
+				_ptr->vertexCount = range.count;
+			}
+			_vkCmdDrawMultiEXT(*m_current_command_buffer, subranges_count, ptr, 1, 0, sizeof(VkMultiDrawInfoEXT));
 		}
 		else
 		{
@@ -962,6 +975,24 @@ void VKGSRender::emit_geometry(u32 sub_index)
 		else if (rsx::method_registers.current_draw_clause.is_single_draw())
 		{
 			vkCmdDrawIndexed(*m_current_command_buffer, upload_info.vertex_draw_count, 1, 0, 0, 0);
+		}
+		else if (m_device->get_multidraw_support())
+		{
+			const auto subranges = draw_call.get_subranges();
+			const auto subranges_count = ::size32(subranges);
+			auto [offset, ptr] = m_draw_indirect_count_ring_info.alloc_and_map<4, VkMultiDrawIndexedInfoEXT>(subranges_count);
+
+			auto _ptr = ptr;
+			u32 vertex_offset = 0;
+			for (const auto& range : subranges)
+			{
+				const auto count = get_index_count(draw_call.primitive, range.count);
+				_ptr->vertexOffset = 0;
+				_ptr->firstIndex = vertex_offset;
+				_ptr->indexCount = count;
+				vertex_offset += count;
+			}
+			_vkCmdDrawMultiIndexedEXT(*m_current_command_buffer, subranges_count, ptr, 1, 0, sizeof(VkMultiDrawIndexedInfoEXT), nullptr);
 		}
 		else
 		{
@@ -1107,9 +1138,6 @@ void VKGSRender::end()
 	m_texture_cache.release_uncached_temporary_subresources();
 	m_frame_stats.textures_upload_time += m_profiler.duration();
 
-	// Final heap check...
-	check_heap_status(VK_HEAP_CHECK_VERTEX_STORAGE | VK_HEAP_CHECK_VERTEX_LAYOUT_STORAGE);
-
 	u32 sub_index = 0;               // RSX subdraw ID
 	m_current_draw.subdraw_id = 0;   // Host subdraw ID. Invalid RSX subdraws do not increment this value
 
@@ -1134,7 +1162,7 @@ void VKGSRender::end()
 
 	if (m_current_command_buffer->flags & vk::command_buffer::cb_has_conditional_render)
 	{
-		m_device->_vkCmdEndConditionalRenderingEXT(*m_current_command_buffer);
+		_vkCmdEndConditionalRenderingEXT(*m_current_command_buffer);
 		m_current_command_buffer->flags &= ~(vk::command_buffer::cb_has_conditional_render);
 	}
 
